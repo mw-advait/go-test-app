@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-testdb}
+      POSTGRES_USER: ${POSTGRES_USER:-testuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpass}
+    ports:
+      - "6433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Middleware-only app — sends traces/errors to MW only
+  go-test-app-mw:
+    build:
+      context: .
+      args:
+        BUILD_ENV: ${BUILD_ENV:-dev}
+    ports:
+      - "3011:3000"
+    env_file: .env
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    environment:
+      PG_HOST: postgres
+      PORT: 3000
+      APM_MODE: mw
+      SENTRY_DSN: ""
+      # MW_AGENT_SERVICE: host.docker.internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Sentry-only app — sends traces/errors to Sentry only
+  go-test-app-sentry:
+    build:
+      context: .
+      args:
+        BUILD_ENV: ${BUILD_ENV:-dev}
+    ports:
+      - "3012:3000"
+    env_file: .env
+    environment:
+      PG_HOST: postgres
+      PORT: 3000
+      APM_MODE: sentry
+      MW_API_KEY: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
